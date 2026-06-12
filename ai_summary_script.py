@@ -52,10 +52,30 @@ LLM_MODEL = constants.LLM_MODEL
 OLLAMA_TIMEOUT = 900
 MAX_RETRIES = 3
 
-# ─── Mediator Configuration ──────────────────────────────────────────
-CHUNK_MAX_TOKENS = 2200       # per chunk input
-CHUNK_RESPONSE_TOKENS = 800   # per chunk output
-FINAL_RESPONSE_TOKENS = 1500  # final consolidation output
+# ─── Response Configuration (inherited from es_chatbot project) ────────
+# No artificial response limits. LLM stops naturally when answer is complete.
+# max_tokens per call is set high enough for complete responses.
+# For large data, chunking is used — each chunk gets its own high max_tokens.
+#
+# Response size guide (natural, no artificial limits):
+# - COUNT:   ~50 words (1-2 lines) — naturally short
+# - DETAIL:  ~200 words (5-15 lines) — naturally concise
+# - LIST:    ~500-5000+ words — scales with data, all items returned
+# - ANALYZE: ~1000-10000+ words — scales with data complexity
+# A 10-page response ≈ 5000-6000 words ≈ 8000-10000 tokens per call.
+
+# Per-call token limits (safety ceiling, not target — LLM stops naturally)
+CHUNK_MAX_TOKENS = 2500        # max input tokens per chunk
+CHUNK_RESPONSE_TOKENS = 8000   # max output tokens per chunk (matches es_chatbot mediator)
+FINAL_RESPONSE_TOKENS = 8000   # max output for final consolidation
+
+# Context window (max input chars)
+CONTEXT_WINDOW_LIMIT = 32000   # matches es_chatbot engine.py line 2325
+
+# Chunking
+CONCURRENT_CHUNKS = 2          # parallel LLM calls for large datasets
+
+# ─── Imports from project modules ────────────────────────────────────
 
 # ─── Imports from project modules ────────────────────────────────────
 # These are imported at runtime to avoid circular imports
@@ -281,20 +301,78 @@ RULES:
 
     def classify_intent(self, question: str, base_prompt: str) -> str:
         """
-        Classify the question intent.
+        Classify the question intent using comprehensive keyword matching.
+        No LLM call needed — fast and deterministic.
         Returns: LIST, COUNT, DETAIL, ANALYZE, or DIRECT
         """
+        q = question.lower().strip()
+
+        # ── COUNT keywords (check first — most specific) ──
+        count_keywords = [
+            "how many", "what is the count", "what's the count", "total number",
+            "number of", "count the", "count all", "how much", "total count",
+            "how many unique", "how many different", "how many total",
+        ]
+        for kw in count_keywords:
+            if kw in q:
+                return "COUNT"
+
+        # ── ANALYZE keywords (check before LIST — broader intent) ──
+        analyze_keywords = [
+            "analyze", "analysis", "analyse", "analyses",
+            "compare", "comparison", "contrast", "versus", "vs ",
+            "pattern", "patterns", "trend", "trends",
+            "connect the dots", "connect dots", "correlate", "correlation",
+            "strategic", "significance", "implication", "implications",
+            "relationship", "relationships", "link between",
+            "assess", "assessment", "evaluate", "evaluation",
+            "summarize", "summary", "overview", "brief",
+            "highlight", "key findings", "key observations",
+            "break down", "breakdown",
+            "what does this mean", "what can you tell me",
+            "insights", "insight", "what are the trends",
+            "provide an overview", "give me an overview",
+            "tell me about the data", "what can you tell",
+        ]
+        for kw in analyze_keywords:
+            if kw in q:
+                return "ANALYZE"
+
+        # ── LIST keywords (specific list requests only) ──
+        list_keywords = [
+            "list all", "list the", "list every", "list each", "list of all",
+            "show me all", "show all", "display all", "enumerate",
+            "give me all", "give me a list", "provide a list", "provide all",
+            "all of the", "all unique", "all different",
+            "all locations", "all equipment", "all formations", "all activities",
+            "all types", "all categories", "all sites", "all areas", "all records",
+        ]
+        for kw in list_keywords:
+            if kw in q:
+                return "LIST"
+
+        # ── DETAIL keywords (more specific — single item focus) ──
+        detail_keywords = [
+            "what is the", "what's the", "status of", "detail on", "details on",
+            "tell me about", "describe", "describe the", "information on", "info on",
+            "give me details", "provide details", "elaborate on",
+            "what happened at", "what occurred at", "report on",
+        ]
+        for kw in detail_keywords:
+            if kw in q:
+                return "DETAIL"
+
+        # ── Fallback: use LLM for truly ambiguous questions ──
         prompt = (
             f"User question: {question}\n"
-            f"Analysis instructions: {base_prompt}\n\n"
-            "What type of answer is needed? Reply with ONLY: LIST, COUNT, DETAIL, ANALYZE, or DIRECT"
+            f"What type of answer is needed? Reply with ONLY: LIST, COUNT, DETAIL, ANALYZE, or DIRECT"
         )
         resp = self._call_llm(self._DECISION_SYSTEM, prompt, max_tokens=5)
         intent = resp.strip().upper()
         for valid in ["LIST", "COUNT", "DETAIL", "ANALYZE", "DIRECT"]:
             if valid in intent:
                 return valid
-        return "ANALYZE"  # default
+        return "DETAIL"  # safest default
 
     def respond(self, question: str, data_context: str,
                 base_prompt: str, extra_prompt: str = "") -> str:
