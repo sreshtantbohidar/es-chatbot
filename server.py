@@ -529,9 +529,15 @@ def api_fetch():
     b = _json_body()
     if isinstance(b, tuple):
         return b
+    raw_query = b.get("raw_query")
+    if b.get("mode") == "raw_query" and isinstance(raw_query, str):
+        try:
+            raw_query = json.loads(raw_query)
+        except json.JSONDecodeError as je:
+            return jsonify({"error": f"Invalid JSON in raw query: {je}"}), 400
     try:
         result = eng.fetch_data(FetchRequest(mode=b.get("mode","category"),category=b.get("category"),
-                              raw_query=b.get("raw_query"),date_from=b.get("date_from"),date_to=b.get("date_to")))
+                              raw_query=raw_query,date_from=b.get("date_from"),date_to=b.get("date_to")))
         return jsonify({"total_hits":result.total_hits,"documents_stored":len(eng.store.documents),"warnings":result.warnings})
     except Exception as e:
         return jsonify({"error":str(e)}),500

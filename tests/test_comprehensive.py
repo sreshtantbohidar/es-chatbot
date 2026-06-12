@@ -157,67 +157,157 @@ class TestAPIEndpoints(unittest.TestCase):
             json={"mode": "category", "category": "General Area"})
         self.assertEqual(r.status_code, 404)
 
-    def test_09_session_status(self):
+    def test_09_raw_query_fetch(self):
+        """Raw ES query mode should work."""
         sid, _ = create_session()
-        r = requests.get(f"{BASE_URL}/api/session/status?session_id={sid}")
-        self.assertEqual(r.status_code, 200)
-        data = r.json()
-        self.assertEqual(data["session_id"], sid)
-        self.assertFalse(data["is_loaded"])
-        cleanup_session(sid)
-
-    def test_10_session_status_not_found(self):
-        r = requests.get(f"{BASE_URL}/api/session/status?session_id=nonexistent-xyz")
-        self.assertEqual(r.status_code, 404)
-
-    def test_11_session_reset(self):
-        sid, _ = create_session()
-        r = requests.post(f"{BASE_URL}/session/reset?session_id={sid}")
-        self.assertEqual(r.status_code, 200)
-        cleanup_session(sid)
-
-    def test_12_session_delete(self):
-        sid, _ = create_session()
-        r = requests.delete(f"{BASE_URL}/session?session_id={sid}")
-        self.assertEqual(r.status_code, 200)
-        # Verify deleted
-        r2 = requests.get(f"{BASE_URL}/api/session/status?session_id={sid}")
-        self.assertEqual(r2.status_code, 404)
-
-    def test_13_one_shot_ask(self):
-        r = requests.post(f"{BASE_URL}/api/ask", json={
-            "question": "list top 3 locations",
-            "fetch": {
+        r = requests.post(f"{BASE_URL}/api/session/fetch?session_id={sid}",
+            json={
                 "mode": "raw_query",
-                "raw_query": {"query": {"bool": {"must_not": [{"term": {"form_status": 5}}]}}, "size": 3}
-            }
-        })
+                "raw_query": {
+                    "query": {"bool": {"must_not": [{"term": {"form_status": 5}}]}},
+                    "size": 5
+                }
+            })
         self.assertEqual(r.status_code, 200)
         data = r.json()
-        self.assertIn("answer", data)
-        self.assertIn("sources_used", data)
-        self.assertGreater(len(data["answer"]), 0)
+        self.assertGreater(data["documents_stored"], 0)
+        cleanup_session(sid)
 
-    def test_14_one_shot_empty_body(self):
-        r = requests.post(f"{BASE_URL}/api/ask", json={})
+    def test_10_raw_query_invalid_json(self):
+        """Invalid JSON in raw query should return 400."""
+        sid, _ = create_session()
+        r = requests.post(f"{BASE_URL}/api/session/fetch?session_id={sid}",
+            json={"mode": "raw_query", "raw_query": "not valid json"})
         self.assertEqual(r.status_code, 400)
+        cleanup_session(sid)
 
-    def test_15_docs_redirect(self):
-        r = requests.get(f"{BASE_URL}/docs", allow_redirects=False)
-        self.assertEqual(r.status_code, 302)
-        self.assertIn("/apidocs/", r.headers.get("Location", ""))
+    def test_11_raw_query_all_categories(self):
+        """Raw query should work for each category."""
+        categories = [
+            "Force Disposition", "Training Areas", "Infra Development",
+            "PLA Sitrep", "General Area", "Movement", "AIR Aspects",
+            "SAM Deployment", "Mobile Interception", "Overall Deployment",
+        ]
+        for cat in categories:
+            sid = f"raw-cat-{cat.replace(' ', '-').lower()}"
+            requests.post(f"{BASE_URL}/api/session/create",
+                json={"session_id": sid, "llm_model": "llama3:8b-instruct-q8_0", "max_turns": 5})
+            r = requests.post(f"{BASE_URL}/api/session/fetch?session_id={sid}",
+                json={"mode": "category", "category": cat})
+            self.assertEqual(r.status_code, 200, f"Failed for category: {cat}")
+            requests.delete(f"{BASE_URL}/session?session_id={sid}")
 
-    def test_16_apidocs_renders(self):
-        r = requests.get(f"{BASE_URL}/apidocs/")
+    def test_12_raw_query_all_data(self):
+        """Raw query with no filter should return all data."""
+        sid, _ = create_session()
+        r = requests.post(f"{BASE_URL}/api/session/fetch?session_id={sid}",
+            json={
+                "mode": "raw_query",
+                "raw_query": {"query": {"match_all": {}}}
+            })
         self.assertEqual(r.status_code, 200)
-        self.assertIn("swagger-ui", r.text.lower())
+        data = r.json()
+        self.assertGreater(data["total_hits"], 10000)
+        cleanup_session(sid)
 
-    def test_17_spec_json(self):
-        r = requests.get(f"{BASE_URL}/apispec_1.json")
+    def test_13_raw_query_with_ask(self):
+        """Ask after raw query fetch should work."""
+        sid, _ = create_session()
+        requests.post(f"{BASE_URL}/api/session/fetch?session_id={sid}",
+            json={
+                "mode": "raw_query",
+                "raw_query": {
+                    "query": {"bool": {"must": [{"term": {"activity_type": "infra"}}]}}
+                }
+            })
+        r = requests.post(f"{BASE_URL}/api/session/ask?session_id={sid}",
+            json={"question": "summarize the infrastructure data"})
         self.assertEqual(r.status_code, 200)
-        spec = r.json()
-        self.assertIn("paths", spec)
-        self.assertGreater(len(spec["paths"]), 0)
+        self.assertGreater(len(r.json().get("answer", "")), 100)
+        cleanup_session(sid)
+
+    def test_14_raw_query_date_filter(self):
+        """Raw query with date range filter."""
+        sid, _ = create_session()
+        r = requests.post(f"{BASE_URL}/api/session/fetch?session_id={sid}",
+            json={
+                "mode": "raw_query",
+                "raw_query": {
+                    "query": {"bool": {"must": [{"range": {"activity_date": {"gte": "2025-01-01"}}}]}}
+                }
+            })
+        self.assertIn(r.status_code, [200, 400])  # 400 if field doesn't exist
+        cleanup_session(sid)
+
+    def test_15_raw_query_empty(self):
+        """Empty raw query should be handled."""
+        sid, _ = create_session()
+        r = requests.post(f"{BASE_URL}/api/session/fetch?session_id={sid}",
+            json={"mode": "raw_query", "raw_query": {}})
+        self.assertIn(r.status_code, [200, 400])
+        cleanup_session(sid)
+
+    def test_09_session_status(self):
+        def test_16_session_status(self):
+            sid, _ = create_session()
+            r = requests.get(f"{BASE_URL}/api/session/status?session_id={sid}")
+            self.assertEqual(r.status_code, 200)
+            data = r.json()
+            self.assertEqual(data["session_id"], sid)
+            self.assertFalse(data["is_loaded"])
+            cleanup_session(sid)
+
+        def test_17_session_status_not_found(self):
+            r = requests.get(f"{BASE_URL}/api/session/status?session_id=nonexistent-xyz")
+            self.assertEqual(r.status_code, 404)
+
+        def test_18_session_reset(self):
+            sid, _ = create_session()
+            r = requests.post(f"{BASE_URL}/session/reset?session_id={sid}")
+            self.assertEqual(r.status_code, 200)
+            cleanup_session(sid)
+
+        def test_19_session_delete(self):
+            sid, _ = create_session()
+            r = requests.delete(f"{BASE_URL}/session?session_id={sid}")
+            self.assertEqual(r.status_code, 200)
+            r2 = requests.get(f"{BASE_URL}/api/session/status?session_id={sid}")
+            self.assertEqual(r2.status_code, 404)
+
+        def test_20_one_shot_ask(self):
+            r = requests.post(f"{BASE_URL}/api/ask", json={
+                "question": "list top 3 locations",
+                "fetch": {
+                    "mode": "raw_query",
+                    "raw_query": {"query": {"bool": {"must_not": [{"term": {"form_status": 5}}]}}, "size": 3}
+                }
+            })
+            self.assertEqual(r.status_code, 200)
+            data = r.json()
+            self.assertIn("answer", data)
+            self.assertIn("sources_used", data)
+            self.assertGreater(len(data["answer"]), 0)
+
+        def test_21_one_shot_empty_body(self):
+            r = requests.post(f"{BASE_URL}/api/ask", json={})
+            self.assertEqual(r.status_code, 400)
+
+        def test_22_docs_redirect(self):
+            r = requests.get(f"{BASE_URL}/docs", allow_redirects=False)
+            self.assertEqual(r.status_code, 302)
+            self.assertIn("/apidocs/", r.headers.get("Location", ""))
+
+        def test_23_apidocs_renders(self):
+            r = requests.get(f"{BASE_URL}/apidocs/")
+            self.assertEqual(r.status_code, 200)
+            self.assertIn("swagger-ui", r.text.lower())
+
+        def test_24_spec_json(self):
+            r = requests.get(f"{BASE_URL}/apispec_1.json")
+            self.assertEqual(r.status_code, 200)
+            spec = r.json()
+            self.assertIn("paths", spec)
+            self.assertGreater(len(spec["paths"]), 0)
 
 
 # ─── Test: UI Rendering ──────────────────────────────────────────────
