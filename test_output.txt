@@ -1,0 +1,45 @@
+Fetching...
+Fetched 26 docs in 0.5s
+
+================================================================================
+Q1: What are all the unique locations mentioned in the data?
+================================================================================
+
+ANSWER (259.7s):
+The unique locations mentioned in the provided documents are:
+
+- **Hyderabad**
+- **Guangzhou** (coordinates: 23.1291° N, 113.2644° E)
+- **Xingiang garrison** (coordinates: 43.8256° N, 87.6168° E)
+- **Tremo La/ Opposite Sikkim**
+- **Burang** (coordinates: 30.3001N, 81.1207E)
+
+[Sources: 40 | Debug: {'mode': 'direct', 'total': 26}]
+
+================================================================================
+Q2: What infrastructure types are listed? Group them by type.
+================================================================================
+
+ANSWER (214.0s):
+Based on the provided documents, the listed infrastructure types are categorized as follows:
+
+- **Dugouts and Trenches**
+  - Connected shelters near Manza (31.2564, 79.5689)
+
+- **Military Camps**
+  - Garrison in Hyderabad (N: 23.1291°, E: 113.2644°)
+
+- **Training Areas/Exercise Areas**
+  - Training area near Tsona at 39.2345° N, 92.1010° E
+
+- **Unidentified**
+  - Artillery site in Minqin deployment area (N: 37.40°, E: 102.43°)
+  - Power assemblies and OFC cables near Tremo La opposite Sikkim
+
+These categories summarize the distinct types of infrastructure listed within the given time period.
+
+[Sources: 41 | Debug: {'mode': 'direct', 'total': 26}]
+
+================================================================================
+Q3: Which documents mention Tsona? What activities are described there?
+================================================================================
