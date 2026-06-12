@@ -15,8 +15,12 @@ __pycache__/
 .DS_Store
 Thumbs.db
 
-# Test files
-tests/
-
 # Hermes
 .hermes/
+
+# Old debug test files (keep only structured tests)
+tests/_*.py
+tests/test_*.py
+# Keep the comprehensive test files
+!tests/test_comprehensive.py
+!tests/test_response_quality.py
