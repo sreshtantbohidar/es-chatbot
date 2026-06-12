@@ -2,6 +2,10 @@
 
 A full-featured RAG (Retrieval-Augmented Generation) chatbot for Elasticsearch intelligence data. Combines a Flask web UI with a REST API, powered by Ollama LLM models.
 
+## UI Screenshots
+
+See [docs/UI_SCREENSHOTS.md](docs/UI_SCREENSHOTS.md) for UI layout and example interactions.
+
 ## Architecture
 
 ```
